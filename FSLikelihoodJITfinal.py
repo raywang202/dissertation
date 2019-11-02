@@ -21,11 +21,7 @@ def main():
     LaborGradeRange=np.linspace(2,4,11) # discretization of GPA
 
     # Import data .csv and pre-process it
-    # This generates the file DFDataFinal which is the set of observations
-    #fileLocation='/finaldata3.csv'
-    #[DFDataFinal,SATTuition]=PreProcess(fileLocation,sectors,LaborGradeRange)
-    #DFData=DFDataFinal.set_index('id')
-    # alread preprocessed
+    
     DFDataFinal=pd.read_csv(os.path.abspath(os.curdir)+
         '/finaleduc_05-28.csv')
 

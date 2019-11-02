@@ -18,13 +18,10 @@ from DataPreProcessApprox import *
 # number of observations
 num_individuals = 306
 
-# number of bootstrap draws
-bootstrap_iterations = 100
-
 # import transcript with type probabilities
-hs_transcript = pd.read_csv('/Users/raywang/gradschool/bootstrap_transcript.csv')
+hs_transcript = pd.read_csv(os.path.abspath(os.curdir)+'/year_one_transcript.csv')
 
-bootstrap_iterations = 20
+bootstrap_iterations = 2
 # draw individuals and their type
 total_rows = num_individuals*bootstrap_iterations
 random_rows = random.choices(range(num_individuals),k=total_rows)
@@ -84,8 +81,6 @@ for x in range(total_rows):
     [df_row.type1,df_row.type2,df_row.type3])).rvs(size=1)
 
 df = df_base.assign(unobs_type=type_vector)
-
-
 
 
 # Labor Parameters
@@ -267,12 +262,6 @@ X[45]=  1.08530022547e+00
 X[46]= -5.52138028336e-01
 X[47]=  9.64522578512e-02
 X[48]=  2.51913840318e+00
-# xEduc[40:42] switching cost to STEM, nonSTEM
-# xEduc[42:44] private non-rel STEM/non-STEM shifter
-# xEduc[44:46] private rel STEM/non-STEM shifter
-# xEduc[46:48] for-profit STEM/non-STEM shifter
-# xEduc[48] is the payoff to graduating
-# STEM d
 
 xEduc = X.copy()
 for x in [0,1,2,7,8,9]:
@@ -340,14 +329,6 @@ def ElogWage(skilled_wage_coeffs,experience,dSTEM,GPA,quality):
 # Education
 # Can just copy the following code to avoid rerunning labor market
 # 
-
-
-
-# end_time is the grad_horizon+4, stop_time is when results stop being shown
-# current_endowment = (0,0,0,0) for skilled
-# major is 1 if STEM
-# grade is in hundreds (i.e. 400)
-# Emax is specific labor Emax
 
 def LaborSolve(individual_number,current_time,end_time, stop_time, major,grade,
     current_endowment,Emax,ShocksDict,out,wage_coeffs_full,
@@ -1005,7 +986,7 @@ base_draws=np.matrix.transpose(np.matrix(list(
 lmat=np.linalg.cholesky(skilled_wage_covar)
 wageshocks=np.array(np.transpose(np.matmul(lmat,base_draws)))
 
-normReps_later = 3
+normReps_later = 2
 zscores_later=scipy.stats.norm.ppf(np.array(range(1,normReps_later+1))/
     (normReps_later+1))
 base_draws_later=np.matrix.transpose(np.matrix(list(
@@ -1157,18 +1138,6 @@ dropout_payouts[2,1]=19.83343187
 dropout_payouts[3,0]=15.73479004
 dropout_payouts[3,1]=18.99858802
 
-# take dropout payouts as given
-
-# can pull from type zero, since there is no unobserved heterogeneity in the
-# unskilled market
-# for drop_time in range(4):
-#     unskilled_Emax=EmaxLaborFunctionsJITUnskilled(grad_horizon+4-drop_time,
-#         gamma_p,beta,np.array([wage_coeffs_full_by_type[0][-1]]),0,0,
-#         np.array([unskilled_pref]),unskilled_wage_shocks,choose,0)
-#     unskilled_Emax.solveLabor()
-#     dropout_payouts[drop_time,0]=unskilled_Emax.EmaxList[1,0]
-#     dropout_payouts[drop_time,1]=unskilled_Emax.EmaxList[1,1]
-
 
 
 # Solve the type-specific education problem for each unobserved type. 
@@ -1179,19 +1148,6 @@ STEM_payouts_dict={}
 nonSTEM_payouts_dict={}
 for unobs_type in range(num_types):
     for quality in range(2):
-        # STEM_raw_array =  np.zeros(11)
-        # nonSTEM_raw_array = np.zeros(11)
-        # for i in range(11):
-
-        #     STEM_raw_array[i]= STEM_payouts[(unobs_type,quality,
-        #         int(100*LaborGradeRange[i]))]
-        #     nonSTEM_raw_array[i] = nonSTEM_payouts[(unobs_type,quality,
-        #         int(100*LaborGradeRange[i]))]
-
-        # STEM_payouts_array=scipy.interpolate.interp1d(LaborGradeRange,
-        #     STEM_raw_array,kind='cubic')(LaborFinal)
-        # nonSTEM_payouts_array=scipy.interpolate.interp1d(LaborGradeRange,
-        #     nonSTEM_raw_array,kind='cubic')(LaborFinal)
 
         STEM_payouts_dict[(unobs_type,quality)]=(
             STEM_payouts[(unobs_type,quality)])
@@ -1210,6 +1166,7 @@ ed_flows_penalized_by_type = np.array([[xEduc[22]-ed_switching_costs[0],
 grad_payoff = xEduc[48]
 
 ed_Emax = {}
+
 # iterate over all unobserved types for each SAT/quality combination.
 # note that despite
 for x in SATTuition:
@@ -1566,7 +1523,17 @@ SATTuition=list(set(list(DFDataFinal[
 
 DFDataFinal['numeric_state']=numeric_state(DFDataFinal)
 
-DFDataFinal['dSTEM']=dSTEM(DFDataFinal)
+
+def gen_dSTEM(y):
+    length=y.shape[0]
+    out=np.zeros(length,dtype=np.int64)
+    for x in range(length):
+        var=y.tmajor.iloc[x]
+        if var=='STEM':
+            out[x]=1
+    return out
+
+DFDataFinal['dSTEM']=gen_dSTEM(DFDataFinal)
 college_values = list(set(list(DFDataFinal[DFDataFinal.numeric_state==7][
     ['quality','dSTEM','tGPA']].itertuples(index=False,name=None))))
 
@@ -1612,5 +1579,4 @@ def skilled_convert(x):
 DFDataFinal['prior_skilled']=np.vectorize(skilled_convert)(
     DFDataFinal.lastchoice)
 
-
-DFDataFinal['bootstrap_num']=DFDataFinal.id // num_individuals
+DFDataFinal.to_csv(os.path.abspath(os.curdir)+'/sim_data.csv')
