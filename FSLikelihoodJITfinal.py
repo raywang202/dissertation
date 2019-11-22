@@ -12,7 +12,13 @@ import time
 import scipy.interpolate
 
 
-from modelsimjit_final import *
+# from modelsimjit_final import *
+
+
+from EmaxLaborFunctionsJITUnskilled import EmaxLaborFunctionsJITUnskilled
+from EmaxLaborFunctionsJIT import EmaxLaborFunctionsJIT
+from EmaxEducationJIT import EmaxEducationJIT
+
 from DataPreProcessApprox import *
 import simplexmap
 

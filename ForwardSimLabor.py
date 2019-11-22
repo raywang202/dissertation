@@ -298,7 +298,9 @@ def ForwardSimulateEducation(DFChars,individual_number,ed_Emax,dropout_payouts,
     STEM_payouts_dict,nonSTEM_payouts_dict,year_four_intercept,
     year_four_flow_penalized,zero_exp_penalty,wage_coeffs_full_by_type,
     ed_switching_costs,univ_type_shifters,grad_payoff,
-    flows_skilled_by_type_penalized,switching_costs_skilled):
+    flows_skilled_by_type_penalized,switching_costs_skilled,labor_dict):
+
+    ShocksDict['grade'] = ShocksDict['grade']
     # pull in the individual's characteristics
     SAT_M=int(DFChars.iloc[individual_number]['SAT_M'])
     SAT_V=int(DFChars.iloc[individual_number]['SAT_V'])
@@ -434,14 +436,14 @@ def ForwardSimulateEducation(DFChars,individual_number,ed_Emax,dropout_payouts,
         return output
     elif t2choice=='STEM':
         t2grade=round_to_5(100*(Egrade(grade_params,2,1,SAT_M,SAT_V,hs_GPA,
-            A_S,A_N)+ShockGradeRaw[individual_number][1]*STEMsd_by_time[0]))
+            A_S,A_N)+ShocksDict['grade'][individual_number][1]*STEMsd_by_time[0]))
         output[2]={'choice':'STEM','grade':t2grade,
-        'shock':ShockGradeRaw[individual_number][1]*STEMsd_by_time[0]}
+        'shock':ShocksDict['grade'][individual_number][1]*STEMsd_by_time[0]}
     elif t2choice=='nonSTEM':
         t2grade=round_to_5(100*(Egrade(grade_params,2,0,SAT_M,SAT_V,hs_GPA,
-            A_S,A_N)+ShockGradeRaw[individual_number][1]*nonSTEMsd_by_time[0]))
+            A_S,A_N)+ShocksDict['grade'][individual_number][1]*nonSTEMsd_by_time[0]))
         output[2]={'choice':'nonSTEM','grade':t2grade,
-        'shock':ShockGradeRaw[individual_number][1]*nonSTEMsd_by_time[0]}
+        'shock':ShocksDict['grade'][individual_number][1]*nonSTEMsd_by_time[0]}
     else:
         output[2]={'choice':'unskilled','lwage':unskilled_params[0]+
         ShocksDict['unskilled'][individual_number][1],
@@ -511,14 +513,14 @@ def ForwardSimulateEducation(DFChars,individual_number,ed_Emax,dropout_payouts,
         return output
     elif t3choice=='STEM':
         t3grade=round_to_5(100*(Egrade(grade_params,3,1,SAT_M,SAT_V,hs_GPA,
-            A_S,A_N)+ShockGradeRaw[individual_number][2]*STEMsd_by_time[1]))
+            A_S,A_N)+ShocksDict['grade'][individual_number][2]*STEMsd_by_time[1]))
         output[3]={'choice':'STEM','grade':t3grade,
-        'shock':ShockGradeRaw[individual_number][2]*STEMsd_by_time[1]}
+        'shock':ShocksDict['grade'][individual_number][2]*STEMsd_by_time[1]}
     elif t3choice=='nonSTEM':
         t3grade=round_to_5(100*(Egrade(grade_params,3,0,SAT_M,SAT_V,hs_GPA,
-            A_S,A_N)+ShockGradeRaw[individual_number][2]*nonSTEMsd_by_time[1]))
+            A_S,A_N)+ShocksDict['grade'][individual_number][2]*nonSTEMsd_by_time[1]))
         output[3]={'choice':'nonSTEM','grade':t3grade,
-        'shock':ShockGradeRaw[individual_number][2]*nonSTEMsd_by_time[1]}
+        'shock':ShocksDict['grade'][individual_number][2]*nonSTEMsd_by_time[1]}
     else:
         output[3]={'choice':'unskilled','lwage':unskilled_params[0]+
         ShocksDict['unskilled'][individual_number][2],
@@ -579,9 +581,9 @@ def ForwardSimulateEducation(DFChars,individual_number,ed_Emax,dropout_payouts,
     # GPA (see LaborGradeRange) and then solve the dynamic program
     elif t4choice=='STEM':
         t4grade=round_to_5(100*(Egrade(grade_params,4,1,SAT_M,SAT_V,hs_GPA,
-            A_S,A_N)+ShockGradeRaw[individual_number][3]*STEMsd_by_time[1]))
+            A_S,A_N)+ShocksDict['grade'][individual_number][3]*STEMsd_by_time[1]))
         output[4]={'choice':'STEM','grade':t4grade,
-        'shock':ShockGradeRaw[individual_number][3]*STEMsd_by_time[1]}
+        'shock':ShocksDict['grade'][individual_number][3]*STEMsd_by_time[1]}
         finalGPA=round_to_5((t1grade+t2grade+t3grade+t4grade)/4)
 
         if finalGPA>=200:
@@ -598,9 +600,9 @@ def ForwardSimulateEducation(DFChars,individual_number,ed_Emax,dropout_payouts,
 
     elif t4choice=='nonSTEM':
         t4grade=round_to_5(100*(Egrade(grade_params,4,0,SAT_M,SAT_V,hs_GPA,
-            A_S,A_N)+ShockGradeRaw[individual_number][3]*nonSTEMsd_by_time[1]))
+            A_S,A_N)+ShocksDict['grade'][individual_number][3]*nonSTEMsd_by_time[1]))
         output[4]={'choice':'nonSTEM','grade':t4grade,
-        'shock':ShockGradeRaw[individual_number][3]*nonSTEMsd_by_time[1]}
+        'shock':ShocksDict['grade'][individual_number][3]*nonSTEMsd_by_time[1]}
         finalGPA=round_to_5((t1grade+t2grade+t3grade+t4grade)/4)
 
         if finalGPA>=200:
