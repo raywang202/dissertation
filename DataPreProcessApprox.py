@@ -225,7 +225,25 @@ def univ_type_numeric(y):
             out[x]=3
     return out
 
+# hard coded for 3 sectors!
+# x = 0,1,2 for sectors 1,2,3; 3 = hp, 4= unskilled
+def skilled_convert(x):
+    if x>=4:
+        return x-4
+    elif x==2:
+        return 3
+    elif x==3:
+        return 4
+    return -1
 
+
+def AddExpCols(x):
+    return x.shift().fillna(0).cumsum().astype(int)
+
+def intconvert(x):
+    if np.isnan(x):
+        return -1
+    return x
 
 def PreProcess(fileLocation,sectors,LaborGradeRange):
 
@@ -250,8 +268,7 @@ def PreProcess(fileLocation,sectors,LaborGradeRange):
     DFData['choicecat']=DFData.choice.astype(pd.api.types.CategoricalDtype(
         categories=fullCategories))
     
-    def AddExpCols(x):
-        return x.shift().fillna(0).cumsum().astype(int)
+
 
     v = pd.get_dummies(DFData.choicecat).groupby(level=0).apply(AddExpCols)
     DFDataExp=pd.concat([DFData,v[expCategories]], 1).reset_index()
@@ -336,24 +353,12 @@ def PreProcess(fileLocation,sectors,LaborGradeRange):
     DFDataFinal['lastchoice'] = 0
     DFDataFinal['lastchoice']=DFDataFinal.lastchoice.astype(np.int64)
 
-    def intconvert(x):
-        if np.isnan(x):
-            return -1
-        return x
+
 
     DFDataFinal['lastchoice']=np.vectorize(intconvert)(
         DFDataFinal.lastchoiceraw)
 
-    # hard coded for 3 sectors!
-    # x = 0,1,2 for sectors 1,2,3; 3 = hp, 4= unskilled
-    def skilled_convert(x):
-        if x>=4:
-            return x-4
-        elif x==2:
-            return 3
-        elif x==3:
-            return 4
-        return -1
+
     DFDataFinal['prior_skilled']=np.vectorize(skilled_convert)(
         DFDataFinal.lastchoice)
     return [DFDataFinal,SATTuition]

@@ -1,5 +1,5 @@
 # generates bootstrap estimates
-# output is a data frame
+# running main will output a data frame (uncomment the last line in main())
 
 import numpy as np
 import pandas as pd
@@ -20,27 +20,9 @@ import FSLikelihoodJITfinal as fs
 
 from DataPreProcessApprox import *
 
-# hard coded for 3 sectors!
-# x = 0,1,2 for sectors 1,2,3; 3 = hp, 4= unskilled
-def skilled_convert(x):
-    if x>=4:
-        return x-4
-    elif x==2:
-        return 3
-    elif x==3:
-        return 4
-    return -1   
 
-def education_emax_mapping(A_N,A_S,SAT_M,SAT_V,hs_GPA,quality,tuition,univ_type,
-    SATTuition):
-    out=np.zeros(len(A_N),dtype=np.int64)
-    for x in range(len(A_N)):
-        key=tuple([A_N[x],A_S[x],SAT_M[x],SAT_V[x],hs_GPA[x],quality[x],
-            tuition[x],univ_type[x]])
-        out[x]=SATTuition.index(key)
-    return out
-
-
+# Wrapper function that generates the ex-ante labor functions and returns the
+# output (a 2-D array)
 def GenerateEmaxLaborFunctions(sectors,horizon, horizon_later,skilled_wage_covar,
     gamma_p,beta,skilled_wage_coeffs,flows_penalized,wageshocks,major,
     grade,choose,quality,switching_costs_skilled, wageshocks_later,
@@ -57,7 +39,8 @@ def GenerateEmaxLaborFunctions(sectors,horizon, horizon_later,skilled_wage_covar
     output.solveLabor()
     return output.EmaxList
 
-# education parsing function
+# Wrapper function that generates the ex-ante education functions and returns
+# the output (a 2-D array)
 def GenerateEmaxEducationFunctions(unobs_type, quality, dropout_payouts,
     STEM_payouts_dict,nonSTEM_payouts_dict,grade_params_by_quality,gamma_p,beta,
     ed_flows_penalized_by_type,ability_by_type,exog_chars,unskilled_meanvar,
@@ -87,11 +70,8 @@ def GenerateEmaxEducationFunctions(unobs_type, quality, dropout_payouts,
     solution.solve()
     return solution.EmaxEducationValues
 
-def intconvert(x):
-    if np.isnan(x):
-        return -1
-    return x
-
+# Calculates the terminal major (tmajor) and GPA (terminalGPA) given
+# a DataFrame of their choices and outcomes.
 def terminalmajorgpa(x):
     length=x.shape[0]
     if length<4:
@@ -108,10 +88,7 @@ def terminalmajorgpa(x):
             'terminalGPA':[0]})
 
 
-def AddExpCols(x):
-    return x.shift().fillna(0).cumsum().astype(int)
-
-
+# 1 if an individual's terminal major is STEM, 0 otherwise (also 0 for dropouts)
 def gen_dSTEM(y):
     length=y.shape[0]
     out=np.zeros(length,dtype=np.int64)
@@ -130,6 +107,7 @@ def main():
     hs_transcript = pd.read_csv(os.path.abspath(os.curdir)+
         '/year_one_transcript.csv')
 
+
     bootstrap_iterations = 2
     # draw individuals and their type
     total_rows = num_individuals*bootstrap_iterations
@@ -143,9 +121,6 @@ def main():
         ['A_N','A_S','SAT_M','SAT_V','hs_GPA','quality','tuition','univ_type_num']
         ].itertuples(index=False,name=None))))
 
-
-
-
     hs_transcript['ed_emax_mapping']=education_emax_mapping(
         np.array(hs_transcript.A_N),np.array(hs_transcript.A_S),
         np.array(hs_transcript.SAT_M),np.array(hs_transcript.SAT_V),
@@ -154,28 +129,35 @@ def main():
         SATTuition)
 
 
-
     # variable initializations
     num_endowment_types = 3
     sectors=3
-    grad_horizon=30 # number of years after grad over which individual can work
-    final_size=int((grad_horizon+2)*(grad_horizon+1)*grad_horizon/6) # experience allocations
-    num_types = 3
 
+    # number of years after grad over which individual can work
+    grad_horizon=30
 
+    # experience allocations (horizon choose 3)
+    final_size=int((grad_horizon+2)*(grad_horizon+1)*grad_horizon/6)
+    num_endowment_types = 3
+
+    #
     reps_per_person = 30
     stop_time = 15 # when to stop generating output for the model. 
 
-    beta=0.90 # discount factor
-    normReps=4 # perform sectors^normReps draws to integrate
+    # discount factor
+    beta=0.90
+    # perform sectors^normReps draws to integrate
+    normReps=4
+
+    # Discretization of final grade outcomes
     LaborGradeRange=np.linspace(2,4,11)
+
     simReps=9
     horizon_later = 15 
     horizon = 10
 
 
-    # assign types
-
+    # assign types based off the posterior probability in the df
     for x in range(total_rows):
         df_row = df_base.iloc[x]
         type_vector[x]=scipy.stats.rv_discrete(values=(np.arange(num_endowment_types),
@@ -184,7 +166,7 @@ def main():
     df = df_base.assign(unobs_type=type_vector)
 
 
-    # Labor Parameters
+    # Feed in labor parameters
 
     x=[None]*81
     x[   0] =  -3.575e-01
@@ -301,8 +283,11 @@ def main():
 
     # year 4 one unit of experience term
     x[80] = .4973
+    
     xLabor = x.copy()
 
+
+    # Feed in education parameters
 
     # xEduc[0:7] STEM params: SAT_M, SAT_V, HS_GPA, year 1-4
     # xEduc[7:14] nonSTEM params
@@ -373,11 +358,13 @@ def main():
     X[47]=  9.64522578512e-02
     X[48]=  2.51913840318e+00
 
+
+    # Scale and feed in parameters
     xEduc = X.copy()
     for x in [0,1,2,7,8,9]:
         xEduc[x]=xEduc[x]/100
     
-    
+
     grade_params_by_quality = np.array([[xEduc[0:7]+xEduc[14:16],
         xEduc[7:14]+xEduc[16:18]],[xEduc[0:3]+xEduc[32:36]+xEduc[18:20],
         xEduc[7:10]+xEduc[36:40]+xEduc[20:22]]],
@@ -398,10 +385,7 @@ def main():
 
     # Parse labor parameters
     gamma_p=xLabor[30]
-
-
     zero_exp_penalty = np.array(xLabor[68:71],dtype=np.float64)
-
 
     # iterate over both endowment and preference types
     flowsUnskilled=np.array([0,0,0,xLabor[48],0,0],dtype=np.float64) 
@@ -422,7 +406,8 @@ def main():
     LaborEmax={}
     choose = simplexmap.pascal(grad_horizon+4,sectors)
 
-
+    # Generate shocks to integrate over ahead of time (they are fed into the
+    # calculation of the ex-ante value function)
     zscores=scipy.stats.norm.ppf(np.array(range(1,normReps+1))/(normReps+1))
     base_draws=np.matrix.transpose(np.matrix(list(
         itertools.product(zscores,repeat=(sectors)))))
@@ -438,7 +423,6 @@ def main():
     wageshocks_later=np.array(np.transpose(np.matmul(lmat,base_draws_later)))
 
 
-
     switching_costs_skilled = np.array(xLabor[73:76],dtype=np.float64)
 
     flows_skilled_by_type_penalized = [np.zeros(2*sectors+3,
@@ -450,10 +434,6 @@ def main():
             [xLabor[49+3*i]+xLabor[65],xLabor[50+3*i]+xLabor[66],
             xLabor[51+3*i]+xLabor[67]]-switching_costs_skilled)
 
-
-
-    # heterogeneity in STEM and non-STEM payouts by type, but no type het in
-    # unskilled payouts
     LaborFinal=np.linspace(200,400,21,dtype=np.int64)
 
     STEM_payouts=np.zeros([num_endowment_types,2,len(LaborFinal)],
@@ -461,6 +441,10 @@ def main():
     nonSTEM_payouts=np.zeros([num_endowment_types,2,len(LaborFinal)],
         dtype=np.float64)
 
+
+    # Fully solve the skilled labor market, over the unobserved agent type,
+    # quality of college, terminal major, and terminal GPA (discretized over
+    # the LaborGradeRange array)
 
     for endowment_type in range(num_endowment_types):
         for quality in range(2):
@@ -476,21 +460,21 @@ def main():
                         wageshocks_later,zero_exp_penalty)
 
     # Fully solve the unskilled labor market, over the 4 dropout times
+    # and generate the ex-ante value functions as a function of dropout time and
+    # choice at the time of dropout
+    # Note that depending on when the dropout time is, the wage and preference
+    # parameters may be different
+
     flowUnskilled = xLabor[48]
     unskilled_reps=20
-
     unskilled_var=np.array([[xLabor[35]]],dtype=np.float64)
     unskilled_wage_shocks=np.array(np.transpose(np.matrix(scipy.stats.norm.ppf(
         np.array(range(1,unskilled_reps+1))/
         (unskilled_reps+1)))))*unskilled_var[0][0]**0.5
-
     unskilled_wage_coeffs = wage_coeffs_full_by_type[0][-1]
-
     unskilled_switching_cost = np.array([xLabor[77]],dtype=np.float64)
     year_four_switching_cost = np.array([xLabor[78]],dtype=np.float64)
     unskilled_zero_exp_penalty = np.array([xLabor[79]],dtype=np.float64)
-
-    # Solve the recursive problem
     dropout_payouts=np.zeros((4,2),dtype=np.float64)
 
     unskilled_Emax=[None]*4
@@ -517,8 +501,6 @@ def main():
         unskilled_Emax[drop_time]=unskilled.EmaxList
 
     unskilled_Emax=tuple(unskilled_Emax)
-
-
 
     STEM_payouts_raw=np.zeros([num_endowment_types,2,11],dtype=np.float64)
     nonSTEM_payouts_raw=np.zeros([num_endowment_types,2,11],dtype=np.float64)
@@ -557,30 +539,13 @@ def main():
     skilled_wage_shocks=tuple(skilled_shocks_list)
 
 
-
-    unskilledWageShocks=(np.transpose(scipy.stats.norm.ppf(
-        (np.array(range(simReps))+1)/(simReps+1))*(unskilled_var[0][0])**0.5))
-    firstUnskilledDraws=np.exp(unskilled_coeffs_final[0]+unskilledWageShocks)
-
-    ShockPref=np.random.gumbel(size=(df.shape[0],grad_horizon+4,max([sectors+1,4])))
-
-    # wage shocks
-    ShockSkilledWage=np.random.multivariate_normal([0]*sectors,
-        cov=skilled_wage_covar,size=(df.shape[0],grad_horizon))
-
-
-    ShocksDict={'pref':ShockPref,'skilled':ShockSkilledWage}
-
-
-
-
     # Solve the type-specific education problem for each unobserved type. 
     LaborFinal=np.linspace(200,400,21,dtype=np.int64)
 
 
     STEM_payouts_dict={}
     nonSTEM_payouts_dict={}
-    for unobs_type in range(num_types):
+    for unobs_type in range(num_endowment_types):
         for quality in range(2):
 
             STEM_payouts_dict[(unobs_type,quality)]=(
@@ -591,15 +556,13 @@ def main():
 
     ed_flows_penalized_by_type = np.array([[xEduc[22]-ed_switching_costs[0],
         xEduc[23]-ed_switching_costs[1],xLabor[48]],[
-        xEduc[24]-ed_switching_costs[0],xEduc[25]-ed_switching_costs[1],xLabor[48]],
+        xEduc[24]-ed_switching_costs[0],xEduc[25]-ed_switching_costs[1],
+        xLabor[48]],
         [xEduc[26]-ed_switching_costs[0],xEduc[27]-ed_switching_costs[1],
         xLabor[48]]])
-
     grad_payoff = xEduc[48]
 
     ed_Emax = {}
-
-
     for x in SATTuition:
         SAT_M = x[2]
         SAT_V = x[3]
@@ -608,25 +571,33 @@ def main():
         yearly_tuition=x[6]
         univ_type_num = x[7]
         exog_chars=np.array([SAT_M,SAT_V,hs_GPA],dtype=np.float64)
-        for unobs_type in range(num_types):
+        for unobs_type in range(num_endowment_types):
             ed_Emax[(unobs_type,quality,SAT_M,SAT_V,hs_GPA,yearly_tuition)]=(
                 GenerateEmaxEducationFunctions(unobs_type,
                 quality, dropout_payouts,STEM_payouts_dict,nonSTEM_payouts_dict,
                 grade_params_by_quality,gamma_p,beta,ed_flows_penalized_by_type,
                 ability_by_type,exog_chars,unskilled_meanvar,norm_quantiles,
                 year_four_intercept,year_four_flow_penalized,yearly_tuition,
-                ed_switching_costs,univ_type_shifters,univ_type_num,grad_payoff))
+                ed_switching_costs,univ_type_shifters,univ_type_num,
+                grad_payoff))
 
 
-
+    #===========================================================================
     # START SIMULATING
+    #===========================================================================
+
+
+    #===========================================================================
+    # Solve Education market
+    #===========================================================================
 
     # grade shocks
     num_shocks=reps_per_person*df.shape[0]
     ShockGradeRaw=np.random.normal(0,1,(num_shocks,4))
 
     # preference shocks
-    ShockPref=np.random.gumbel(size=(num_shocks,grad_horizon+4,max([sectors+1,4])))
+    ShockPref=np.random.gumbel(size=(num_shocks,grad_horizon+4,
+        max([sectors+1,4])))
 
     # wage shocks
     ShockSkilledWage=np.random.multivariate_normal([0]*sectors,
@@ -634,9 +605,8 @@ def main():
     ShockUnskilledWage=(np.random.normal(0,1,(num_shocks,grad_horizon+4))*
         unskilled_meanvar[1]**0.5)
 
-    ShocksDict={'grade':ShockGradeRaw,'pref':ShockPref,'skilled':ShockSkilledWage,
-    'unskilled':ShockUnskilledWage}
-
+    ShocksDict={'grade':ShockGradeRaw,'pref':ShockPref,
+    'skilled':ShockSkilledWage,'unskilled':ShockUnskilledWage}
 
     # Run for each row of DFChars, then aggregate the results
     num_simulations = df.shape[0]
@@ -649,10 +619,11 @@ def main():
         finaloutput[x]=ForwardSimulateEducation(df,x,ed_Emax,
             dropout_payouts,unskilled_meanvar,grade_params_by_quality,gamma_p,
             beta,ed_flows_penalized_by_type,ability_by_type,norm_quantiles,
-            ShocksDict,STEM_payouts_dict,nonSTEM_payouts_dict,year_four_intercept,
-            year_four_flow_penalized,zero_exp_penalty,wage_coeffs_full_by_type,
-            ed_switching_costs,univ_type_shifters,grad_payoff,
-            flows_skilled_by_type_penalized,switching_costs_skilled,labor_dict)
+            ShocksDict,STEM_payouts_dict,nonSTEM_payouts_dict,
+            year_four_intercept,year_four_flow_penalized,zero_exp_penalty,
+            wage_coeffs_full_by_type,ed_switching_costs,univ_type_shifters,
+            grad_payoff,flows_skilled_by_type_penalized,switching_costs_skilled,
+            labor_dict)
 
 
     largeDF_no_index=df.reset_index()
@@ -672,6 +643,8 @@ def main():
     skilled2_big = []
     skilled3_big = []
 
+    # take the output from the simulations which are in list form and assemble
+    # a DataFrame from it
     for x in range(num_simulations):
         num_obs = len(finaloutput[x])+1
         id_list = [largeDF_no_index.iloc[x].id]*num_obs
@@ -736,28 +709,30 @@ def main():
         skilled3_big.extend(skilled3_list)
 
 
-    df_educ_out=pd.DataFrame({'id':id_big,'unobs_type':unobs_type_big,'time':time_big,
-        'choice':choice_big,'outcome':outcome_big,'choice_type':type_big,
-        'shock':shock_big,'hpskilled':hpskilled_big,'skilled1':skilled1_big,
-        'skilled2':skilled2_big,'skilled3':skilled3_big,'sim_num':sim_big})
+    df_educ_out=pd.DataFrame({'id':id_big,'unobs_type':unobs_type_big,
+        'time':time_big,'choice':choice_big,'outcome':outcome_big,
+        'choice_type':type_big,'shock':shock_big,'hpskilled':hpskilled_big,
+        'skilled1':skilled1_big,'skilled2':skilled2_big,'skilled3':skilled3_big,
+        'sim_num':sim_big})
     df_educ_out=df_educ_out.set_index('id')
 
     # Rejoin results to HS GPA and SAT Scores
-    df_chars=df.groupby('id').first()[['SAT_M','SAT_V','hs_GPA','quality','tuition','univ_type']]
+    df_chars=df.groupby('id').first()[['SAT_M','SAT_V','hs_GPA','quality',
+    'tuition','univ_type']]
     df_educ_out_inter=df_educ_out.merge(df_chars,how='left',on='id')
+    terminal =df_educ_out_inter.groupby('sim_num').apply(terminalmajorgpa).\
+    reset_index()
+    df_educ_out_final = df_educ_out_inter.reset_index().merge(terminal,
+        how='left',on='sim_num')
 
 
-
-
-    terminal =df_educ_out_inter.groupby('sim_num').apply(terminalmajorgpa).reset_index()
-    df_educ_out_final = df_educ_out_inter.reset_index().merge(terminal,how='left',on='sim_num')
-
-
-
-
-    # solve labor market 
+    #===========================================================================
+    # Solve Labor Market
+    #===========================================================================
+ 
     df_labor = pd.DataFrame(labor_dict)
-    ShockPref_labor=np.random.gumbel(size=(df_labor.shape[0],grad_horizon+4,max([sectors+1,4])))
+    ShockPref_labor=np.random.gumbel(size=(df_labor.shape[0],grad_horizon+4,
+        max([sectors+1,4])))
 
     # wage shocks
     ShockSkilledWage_labor=np.random.multivariate_normal([0]*sectors,
@@ -773,8 +748,10 @@ def main():
         quality = df_labor.quality.iloc[x]
         unobs_type = df_labor.unobs_type.iloc[x]
         out = {}
-        flows_skilled_penalized_val = (flows_skilled_by_type_penalized[unobs_type][0:sectors])
-        time_zero_flows_penalized_val = (flows_skilled_by_type_penalized[unobs_type][(sectors+3):
+        flows_skilled_penalized_val = (
+            flows_skilled_by_type_penalized[unobs_type][0:sectors])
+        time_zero_flows_penalized_val = (
+            flows_skilled_by_type_penalized[unobs_type][(sectors+3):
             (2*sectors+3)])
 
         LaborSolve(x,5,grad_horizon+4,stop_time,major,grade,(0,0,0,0),
@@ -793,29 +770,29 @@ def main():
     for x in labor_output.keys():
         for y in labor_output[x].keys():
             if 'grade' in labor_output[x][y]:
-                flatdict_labor.append({'id':x,'time':y,'major':labor_output.dSTEM.iloc[x],
+                flatdict_labor.append({'id':x,'time':y,
+                    'major':labor_output.dSTEM.iloc[x],
                     'gpa':df_labor.tGPA.iloc[x],
-                    'choice':labor_output[x][y]['choice'],'type':'grade',\
-                    'outcome':labor_output[x][y]['grade'],\
+                    'choice':labor_output[x][y]['choice'],'type':'grade',
+                    'outcome':labor_output[x][y]['grade'],
                     'shock':labor_output[x][y]['shock']})
             elif 'lwage' in labor_output[x][y]:
-                flatdict_labor.append({'id':x,'time':y,'major':df_labor.dSTEM.iloc[x],
+                flatdict_labor.append({'id':x,'time':y,
+                    'major':df_labor.dSTEM.iloc[x],
                     'gpa':df_labor.tGPA.iloc[x],
-                    'choice':labor_output[x][y]['choice'],'type':'lwage',\
-                    'outcome':labor_output[x][y]['lwage'],\
+                    'choice':labor_output[x][y]['choice'],'type':'lwage',
+                    'outcome':labor_output[x][y]['lwage'],
                     'shock':labor_output[x][y]['shock']})
             else:
-                flatdict_labor.append({'id':x,'time':y,'major':df_labor.dSTEM.iloc[x],
+                flatdict_labor.append({'id':x,'time':y,
+                    'major':df_labor.dSTEM.iloc[x],
                     'gpa':df_labor.tGPA.iloc[x],
-                    'choice':labor_output[x][y]['choice'],'type':'hp',\
+                    'choice':labor_output[x][y]['choice'],'type':'hp',
                     'outcome':0,'shock':0})
 
     results_labor=pd.DataFrame(flatdict_labor)
     results_labor.sort_values(['id','time'])
 
-
-
-    # hard coded length
     sim_nums = np.zeros(len(labor_dict),dtype=np.int64)
     cf_nums = np.zeros(len(labor_dict),dtype=np.int64)
 
@@ -836,19 +813,20 @@ def main():
 
 
     df_labor_outShort=df_labor_out.set_index('id')
-    df_labor_outShort['choicecat']=df_labor_outShort.choice.astype(pd.api.types.CategoricalDtype(
-            categories=fullCategories))
+    df_labor_outShort['choicecat']=df_labor_outShort.choice.astype(
+        pd.api.types.CategoricalDtype(categories=fullCategories))
 
-    v = pd.get_dummies(df_labor_outShort.choicecat).groupby(level=0).apply(AddExpCols)
+    v = pd.get_dummies(df_labor_outShort.choicecat).groupby(level=0).\
+    apply(AddExpCols)
 
+    #===========================================================================
+    # Modify the education and labor DataFrames so that they can be
+    # stacked on top of each other
+    #===========================================================================
 
-
-    # Pre Process
-
-
-    df_educ_rbind = df_educ_out_final[['sim_num','time','SAT_M','SAT_V','choice',
-    'outcome','choice_type','tuition','quality','tmajor','terminalGPA','hs_GPA',
-    'univ_type']]
+    df_educ_rbind = df_educ_out_final[['sim_num','time','SAT_M','SAT_V',
+    'choice','outcome','choice_type','tuition','quality','tmajor','terminalGPA',
+    'hs_GPA','univ_type']]
 
     df_educ_rbind['type']=df_educ_rbind['choice_type']
     df_educ_rbind=df_educ_rbind.drop(columns='choice_type')
@@ -859,13 +837,19 @@ def main():
         'SAT_M','SAT_V','tuition','quality','tmajor','terminalGPA','hs_GPA',
         'univ_type']],left_on='sim_num',
              right_on='sim_num').reset_index().drop(
-             columns=['id','counterfactual_num'])[['sim_num','time','SAT_M','SAT_V','choice',
-    'outcome','tuition','quality','tmajor','terminalGPA','hs_GPA',
-    'univ_type','type']]
+             columns=['id','counterfactual_num'])[['sim_num','time','SAT_M',
+             'SAT_V','choice','outcome','tuition','quality','tmajor',
+             'terminalGPA','hs_GPA','univ_type','type']]
 
     DFData=pd.concat([df_educ_rbind,df_labor_rbind])
     DFData=DFData.rename(columns={'sim_num':'id'})
     DFData=DFData.set_index(['id','time'])
+
+    #===========================================================================
+    # Pre Process the education and labor DataFrames, attaching columns with
+    # information that is used in the estimation code, such as the cumulative
+    # experience
+    #===========================================================================
 
     DFData['A_N']=0
     DFData['A_S']=0
@@ -873,7 +857,8 @@ def main():
 
     fullCategories=['STEM','nonSTEM','unskilled','hp']+\
     ['skilled'+str(x) for x in range(1,sectors+1)]
-    expCategories=['unskilled','hp']+['skilled'+str(x) for x in range(1,sectors+1)]
+    expCategories=['unskilled','hp']+['skilled'+str(x) for x in range(1,
+        sectors+1)]
     DFData['choicecat']=DFData.choice.astype(pd.api.types.CategoricalDtype(
         categories=fullCategories))
 
@@ -934,8 +919,6 @@ def main():
 
     DFDataFinal['numeric_state']=numeric_state(DFDataFinal)
 
-
-
     DFDataFinal['dSTEM']=gen_dSTEM(DFDataFinal)
     college_values = list(set(list(DFDataFinal[DFDataFinal.numeric_state==7][
         ['quality','dSTEM','tGPA']].itertuples(index=False,name=None))))
@@ -961,13 +944,12 @@ def main():
     DFDataFinal['lastchoice'] = 0
     DFDataFinal['lastchoice']=DFDataFinal.lastchoice.astype(np.int64)
 
-
-
     DFDataFinal['lastchoice']=np.vectorize(intconvert)(
         DFDataFinal.lastchoiceraw)
-
 
     DFDataFinal['prior_skilled']=np.vectorize(skilled_convert)(
         DFDataFinal.lastchoice)
 
-    DFDataFinal.to_csv(os.path.abspath(os.curdir)+'/sim_data.csv')
+    # uncomment this to write the file
+    # DFDataFinal.to_csv(os.path.abspath(os.curdir)+'/sim_data.csv')
+    return DFDataFinal
