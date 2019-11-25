@@ -1,3 +1,7 @@
+# See PreProcess(). Takes in raw data (DataFrame) and adds a number of relevant
+# columns needed for likelihood calculation, such as cumulative experience
+
+
 import sys
 sys.path.append('/nas/longleaf/home/raywang/.local/lib/python3.5/site-packages')
 
@@ -9,8 +13,10 @@ import os
 import numpy as np
 
 from bisect import bisect_left
-from numba import jit
 
+#===============================================================================
+# Calculates cumulative GPA
+#===============================================================================
 def cumulativeGPA(x):
     if x.augmented.iloc[0]==1:
         out=np.zeros(x.shape[0])
@@ -30,8 +36,10 @@ def cumulativeGPA(x):
         'cumulativeGPA':out})
 
 
+#===============================================================================
+# Rounds myNumber to nearest entry in myList
+#===============================================================================
 
-# bisect function lol
 def takeClosest(myNumber, myList):
     """
     Assumes myList is sorted. Returns closest value to myNumber.
@@ -48,6 +56,11 @@ def takeClosest(myNumber, myList):
        return after
     else:
        return before
+
+#===============================================================================
+# Determines the education state of the individual based off of their choice
+# history while in college
+#===============================================================================
 
 def AddEducationState(x):
         length=x.shape[0]
@@ -95,7 +108,10 @@ def AddEducationState(x):
             out[4:length]=['unskilled']*(length-4)
         return pd.DataFrame({'time':list(range(1,length+1)),'state':out})
 
-# terminal GPA is defined to be zero for dropouts
+#===============================================================================
+# Calculate a student's terminal major and gpa
+#===============================================================================
+
 def terminalmajorgpa(x):
     if x.augmented.iloc[0]==1:
         return pd.DataFrame({'tmajor':[x.tmajor.iloc[0]],\
@@ -113,6 +129,10 @@ def terminalmajorgpa(x):
     else:
         return pd.DataFrame({'tmajor':['dropout'],\
             'terminalGPA':[0]})
+
+#===============================================================================
+# Maps a student's state to a number (since numba requires integers)
+#===============================================================================
 
 def numeric_state(y):
     length=y.shape[0]
@@ -139,6 +159,10 @@ def numeric_state(y):
             out[x]=8
     return out
 
+#===============================================================================
+# Maps choices to integers
+#===============================================================================
+
 def numeric_choice(y):
     length=y.shape[0]
     out=np.zeros(length,dtype=np.int64)
@@ -154,8 +178,10 @@ def numeric_choice(y):
             out[x]=3
         else: out[x]=int(var[-1])+3
     return out
-
+#===============================================================================
 # coltype = 0 if HP, 1 if grade, 2 if logwage
+#===============================================================================
+
 def col_type(y):
     length=y.shape[0]
     out=np.zeros(length,dtype=np.int64)
@@ -169,6 +195,10 @@ def col_type(y):
             out[x]=2
     return out
 
+#===============================================================================
+# 1 if student graduates with a degree in STEM, 0 otherwise
+#===============================================================================
+
 def dSTEM(y):
     length=y.shape[0]
     out=np.zeros(length,dtype=np.int64)
@@ -178,6 +208,10 @@ def dSTEM(y):
             out[x]=1
     return out
 
+#===============================================================================
+# Takes in all of the student's characteristics and maps it to a particular
+# education ex-ante value calculation, which is needed in likelihood calculation
+#===============================================================================
 
 def education_emax_mapping(A_N,A_S,SAT_M,SAT_V,hs_GPA,quality,tuition,univ_type,
     SATTuition):
@@ -188,8 +222,10 @@ def education_emax_mapping(A_N,A_S,SAT_M,SAT_V,hs_GPA,quality,tuition,univ_type,
         out[x]=SATTuition.index(key)
     return out
 
+#===============================================================================
 # returns index of skilled emax array
-# HARD CODED
+#===============================================================================
+
 def skilled_emax_mapping2(dSTEM,quality,state,tGPA,college_values):
     out=np.zeros(len(dSTEM),dtype=np.int64)
 
@@ -201,7 +237,11 @@ def skilled_emax_mapping2(dSTEM,quality,state,tGPA,college_values):
             out[x]=-1
     return out
 
-@jit(nopython=True)
+#===============================================================================
+# Assigns numeric mapping of an unskilled worker to a particular set of
+# unskilled ex-ante value functions
+#===============================================================================
+
 def unskilled_emax_mapping(tdropout):
     out=np.zeros(len(tdropout),dtype=np.int64)
     for i in range(len(tdropout)):
@@ -209,7 +249,10 @@ def unskilled_emax_mapping(tdropout):
             out[i]=tdropout[i]-1
     return out
 
+#===============================================================================
 # if univ_type = public: 0, priv_nonrel : 1, priv_rel : 2, forprofit : 3
+#===============================================================================
+
 def univ_type_numeric(y):
     length=y.shape[0]
     out=np.zeros(length,dtype=np.int64)
@@ -225,8 +268,10 @@ def univ_type_numeric(y):
             out[x]=3
     return out
 
-# hard coded for 3 sectors!
+#===============================================================================
 # x = 0,1,2 for sectors 1,2,3; 3 = hp, 4= unskilled
+#===============================================================================
+
 def skilled_convert(x):
     if x>=4:
         return x-4
@@ -236,6 +281,9 @@ def skilled_convert(x):
         return 4
     return -1
 
+#===============================================================================
+# Calculates cumulative experience
+#===============================================================================
 
 def AddExpCols(x):
     return x.shift().fillna(0).cumsum().astype(int)
@@ -245,26 +293,28 @@ def intconvert(x):
         return -1
     return x
 
+#===============================================================================
+# Appends experience columns for each sector to the dataset
+# Adds education state space to data as well
+# df is one individual
+# sectors = number of skilled sectors
+# read in 'fileLocation' from MaximumLikelihoodFulSol.py
+# DFData=pd.read_csv(os.path.abspath(os.curdir)+'/sample_observations.csv')
+#===============================================================================
+
 def PreProcess(fileLocation,sectors,LaborGradeRange):
 
-    # Appends experience columns for each sector to the dataset
-
-    # Adds education state space to data as well
-
-    # df is one individual
-    # sectors = number of skilled sectors
-    # read in 'fileLocation' from MaximumLikelihoodFulSol.py
-
-    #DFData=pd.read_csv(os.path.abspath(os.curdir)+'/sample_observations.csv')
 
     DFData=pd.read_csv(os.path.abspath(os.curdir)+fileLocation)
-    DFData=DFData[['id','time','augmented','male','SAT_M','SAT_V','choice','outcome','type','A_N',
-    'A_S','tuition','quality','tmajor','terminalGPA','hs_GPA','year','univ_type']]
+    DFData=DFData[['id','time','augmented','male','SAT_M','SAT_V','choice',
+    'outcome','type','A_N','A_S','tuition','quality','tmajor','terminalGPA',
+    'hs_GPA','year','univ_type']]
     DFData=DFData.set_index(['id','time'])
 
     fullCategories=['STEM','nonSTEM','unskilled','hp']+\
     ['skilled'+str(x) for x in range(1,sectors+1)]
-    expCategories=['unskilled','hp']+['skilled'+str(x) for x in range(1,sectors+1)]
+    expCategories=['unskilled','hp']+['skilled'+str(x) for x in range(1,
+        sectors+1)]
     DFData['choicecat']=DFData.choice.astype(pd.api.types.CategoricalDtype(
         categories=fullCategories))
     
@@ -362,3 +412,9 @@ def PreProcess(fileLocation,sectors,LaborGradeRange):
     DFDataFinal['prior_skilled']=np.vectorize(skilled_convert)(
         DFDataFinal.lastchoice)
     return [DFDataFinal,SATTuition]
+
+def main():
+    return
+
+if __name__ == "__main__":
+    main()

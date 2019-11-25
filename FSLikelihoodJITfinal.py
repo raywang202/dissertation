@@ -1,18 +1,13 @@
-# approximates the integrals in later periods
-# and also reduces the number of Emaxes to be calculated in the skilled likelihood routine
-# switching costs in education too!
+#===============================================================================
+# Functions used to compute the likelihood of a series of likelihoods
+#===============================================================================
 
 import numpy as np
 import pandas as pd
 from numba import jit
-import multiprocessing
 import scipy
 import itertools
-import time
 import scipy.interpolate
-
-
-# from modelsimjit_final import *
 
 
 from EmaxLaborFunctionsJITUnskilled import EmaxLaborFunctionsJITUnskilled
@@ -22,88 +17,9 @@ from EmaxEducationJIT import EmaxEducationJIT
 from DataPreProcessApprox import *
 import simplexmap
 
-def main():
-    sectors=3 # occupational sectors
-    LaborGradeRange=np.linspace(2,4,11) # discretization of GPA
-
-    # Import data .csv and pre-process it
-    
-    DFDataFinal=pd.read_csv(os.path.abspath(os.curdir)+
-        '/finaleduc_05-28.csv')
-
-    SATTuition=list(set(list(DFDataFinal[
-        ['A_N','A_S','SAT_M','SAT_V','hs_GPA','quality']].\
-        itertuples(index=False,name=None))))
-
-
-    DFData=DFDataFinal.set_index('id')
-
-    # Fixed Parameters
-
-    grad_horizon=10 # number of years after grad over which individual can work
-    normReps=4 # number of times to approximate normal integrals
-    simReps=9
-    # max size of labor state space, given by grad horizon choose 3
-    final_size=int((grad_horizon+2)*(grad_horizon+1)*grad_horizon/6)
-
-    # vector of per-period flow utilities. order is all skilled, nonskilled,
-    # STEM, nonSTEM. Note that leisure is always normalized to 0 so it is
-    # excluded
-    flows_skilled=[-1,-2,-1.5]
-    time_zero_flows = [-4,-5,-6.5]
-    # switching costs for skilled 1,2,3, unskilled
-    switch_costs_full = [1,1,1,0.5]
-
-    flows_skilled_penalized = [-2,-3,-2.5]
-    flowUnskilled=-1
-    unskilled_switch_cost = switch_costs_full[3]
-    flow_unskilled_penalized=flowUnskilled - unskilled_switch_cost
-    # penalized flows can be calculated by subtracting skilled switching costs
-    # from time zero flows
-    time_zero_flows_penalized = [-5,-6,-7.5]
-    flowSTEM=-1
-    flownonSTEM=-0.5
-
-    flowsFull=(flows_skilled_penalized+
-        [flow_unskilled_penalized,flowSTEM,flownonSTEM]+
-        time_zero_flows_penalized)
-    flows=np.array(flowsFull,dtype=np.float64)
-    gamma_p=0.08 # preference for money
-    beta=0.95 # discount factor
-    ability=np.array([0,0]) # unobserved ability
-    # covariance matrix for college graduates
-    skilled_wage_covar=np.array([[0.001, 0, 0], [0.00, 0.0015, 0],
-        [0, 0, 0.001]])
-
-    # variance for unskilled
-    unskilled_var=np.array([[.01]])
-    # wage coefficients, for skilled sectors 1-3, then unskilled
-    # params given by C, M, GPA_N, GPA_S, x1, x2, x3, ownsq, >1, quality, age
-
-    wage_coeffs_full=np.array([
-        [3.5,-0.75, 0, .25, 0.05,0.01,0.01, -0.002,0.07, 0.05,0.02],
-        [3.15,0, 0.09, 0, 0.01,0.07,0.01, -0.004,0.02,0.14,0.02],
-        [3.1,-0.4, 0, 0.15, 0.01, 0.01,0.04,-0.001,0.05,0.05,0.02],
-        [3,0, 0, 0, 0.07, 0,0,-0.002,0.03,0,0.02]],dtype=np.float64)
-
-    year_four_intercept=3.1
-
-    # 8x2 vector by major:
-    #   [SAT_M, SAT_V, hs_GPA, lambda_1,lambda_2,lambda_3,lambda_4,sigma^2_m]
-    # first 
-    ####
-    grade_params=np.array([[.0022,.000189,.00447,-0.09,.039,.023,.19,.25,0.21],
-    [.00178,.00086,0.00529,-0.36,-0.01,0.04,0.13,.40,0.35]],dtype=np.float64)
-
-
-
-    out=LogLikeFullSolution(DFData,SATTuition,grad_horizon,sectors,gamma_p,beta,
-    ability,flows,wage_coeffs_full,skilled_wage_covar,unskilled_var,
-    grade_params,normReps,simReps,LaborGradeRange,final_size,
-    np.array(switch_costs_full,dtype=np.float64),year_four_intercept,
-    True)
-    print('loglike is'+str(out))
-
+#===============================================================================
+# Rounding functions
+#===============================================================================
 
 @jit(nopython=True)
 def takeClosest(myNumber, myList):
@@ -120,9 +36,16 @@ def round_to(n, precision):
 def round_to_5(n):
     return round_to(n, 5)
 
-# returns array of expected wages for skilled sector,
-# given grades (in units of 100)
-# experience is for sectors 1, 2, 3, and HP
+#===============================================================================
+# Calculates expected skilled wage offer (net wage shock) given wage coeffs,
+# experience, and major/GPA/quality.
+# Grades are in units of 100
+# experience a 1x4 array and for sectors 1, 2, 3, and HP
+# if statement refers to condition that quadratic is non-decreasing in own-
+# sector experience.
+# Returns a 1x4 array
+#===============================================================================
+
 @jit(nopython=True)
 def elogwage(skilled_wage_coeffs,experience,dSTEM,GPA,quality):
     out=np.zeros(skilled_wage_coeffs.shape[0],dtype=np.float64)
@@ -181,7 +104,11 @@ def elogwage(skilled_wage_coeffs,experience,dSTEM,GPA,quality):
 
     return out
 
-# HARD CODED FOR 3 SECTORS
+#===============================================================================
+# Combines four arrays of experience (4 columns of DataFrame) into
+# a single N x 4 array
+#===============================================================================
+
 @jit(nopython=True)
 def create_skilled_experience(skilled1,skilled2,skilled3,hp):
     out=np.zeros((len(skilled1),4),dtype=np.int64)
@@ -190,10 +117,13 @@ def create_skilled_experience(skilled1,skilled2,skilled3,hp):
             int(skilled3[x]),int(hp[x])])
     return out
 
-# contains a bunch of zeros for major, grade, and sectors 2 and 3.
-# ordering is identical to skilled sector
-# note that if it is for year 4, there needs to be a modified intercept already
-# accounted for
+
+#===============================================================================
+# Calculates the expected unskilled wage offer given experience
+# Note that unskilled_wage_coeffs needs to vary depending on the 4th year
+# intercept, etc.
+#===============================================================================
+
 
 @jit(nopython=True)
 def elogwageUnskilled(unskilled_wage_coeffs,unskilled_experience,
@@ -214,22 +144,42 @@ def elogwageUnskilled(unskilled_wage_coeffs,unskilled_experience,
             unskilled_wage_coeffs[10]*total_exp)
     return out
 
+#===============================================================================
+# Calculates the difference between the observed wage and the expected wage
+# which factors in the wage likelihood (normal density) and choice likelihood.
+# This version is for skilled wages observations only.
+#===============================================================================
+
+@jit(nopython=True)
+def calculate_wage_shock_skilled(outcome,col_type,choice,state,
+    skilled_wage_coeffs,experience,dSTEM,GPA,quality):
+    out=np.zeros(outcome.shape[0])
+    for x in range(outcome.shape[0]):
+        wage_vector=elogwage(skilled_wage_coeffs,
+            experience[x],dSTEM[x],GPA[x],quality[x])
+        # 4 is the offset due to STEM/nonSTEM/hp/unskilled
+        out[x]=outcome[x]-wage_vector[choice[x]-4]
+
+    return out
+
+
+#===============================================================================
+# Calculates the difference between the observed wage and the expected wage
+# which factors in the wage likelihood (normal density) and choice likelihood.
+# This version is for unskilled only, and so it needs the additional unskilled
+# arguments like year_four...
+#===============================================================================
+
 @jit(nopython=True)
 def calculate_wage_shock(outcome,col_type,choice,state,skilled_wage_coeffs,
     unskilled_wage_coeffs,experience,unskilled_exp,dSTEM,GPA,quality,tdropout,
     year_four_intercept,year_four_exp,year_four_quadratic,year_four_year_1):
     out=np.zeros(outcome.shape[0])
     for x in range(outcome.shape[0]):
-        if col_type[x]==2 and state[x]==7: # if skilled wage
-            wage_vector=elogwage(skilled_wage_coeffs,
-                experience[x],dSTEM[x],GPA[x],quality[x])
-            # 4 is the offset due to STEM/nonSTEM/hp/unskilled
-            out[x]=outcome[x]-wage_vector[choice[x]-4]
-        elif col_type[x]==2:
+        if col_type[x]==2:
             if tdropout[x]==4:
                 unskilled_wage_coeffs_final = unskilled_wage_coeffs.copy()
                 unskilled_wage_coeffs_final[0] = year_four_intercept
-
                 unskilled_wage_coeffs_final[4] = year_four_exp
                 unskilled_wage_coeffs_final[7] = year_four_quadratic
                 unskilled_wage_coeffs_final[8] = year_four_year_1
@@ -240,17 +190,12 @@ def calculate_wage_shock(outcome,col_type,choice,state,skilled_wage_coeffs,
                     unskilled_exp[x],experience[x][3])
     return out
 
-@jit(nopython=True)
-def calculate_wage_shock_skilled(outcome,col_type,choice,state,skilled_wage_coeffs,
-    experience,dSTEM,GPA,quality):
-    out=np.zeros(outcome.shape[0])
-    for x in range(outcome.shape[0]):
-        wage_vector=elogwage(skilled_wage_coeffs,
-            experience[x],dSTEM[x],GPA[x],quality[x])
-        # 4 is the offset due to STEM/nonSTEM/hp/unskilled
-        out[x]=outcome[x]-wage_vector[choice[x]-4]
-
-    return out
+#===============================================================================
+# Generates wage shocks over the posterior distribution of all other unobserved
+# wage shocks, in light of the particular observed wage shock. Not very
+# interesting given that there is no correlation between wage shocks across
+# sectors (the posterior wage shock distribution is just the unconditional dist)
+#===============================================================================
 
 def MVNposterior(covariance,draws):
     dim=len(covariance)
@@ -308,10 +253,12 @@ def MVNposterior(covariance,draws):
         lmat,baseDrawsHP)),dtype=np.float64)
     return tuple([meanterm,covar,skilled_shocks,hp_shocks])
 
-# Helper function for logit likelihood
-# choiceflows is vector of flow utilities
-# choice is the index of the choice
+
+#===============================================================================
+# Series of logistic likelihood functions (used in choice probabilities)
 # returns the likelihood which is exp(choice)/sum(exp(all choices))
+#===============================================================================
+
 @jit(nopython=True)
 def LogitLike(choiceflows,choice):
     red1=choiceflows-choiceflows[choice]
@@ -331,13 +278,17 @@ def LogitLikeNoHP(sector_flows,sector):
     return LogitLike(choiceflows,sector)
 
 
-# Take average of logit likelihoods, over each wage shock
-# returns a LOG likelihood
-# Logic for terminal case too
+
+#===============================================================================
+# Take average of logit likelihoods, over each wage shock and returns a
+# LOG likelihood of that particular choice.
+# This case is for the skilled labor market, where the wage is observed
+#
 # simwageshocks is a tuple of matrices of shocks, 0 corresponding to HP
 # meanterm is a sectors * sectors array
 # skilled_choice corresponds directly to skilled sector (0 = HP)
 # prior skilled is numbered 0 = skilled 1 ... 3 = HP
+#===============================================================================
 
 @jit(nopython=True)
 def WageShockIntegrateNP(grad_horizon,sectors,time,skilled_choice,
@@ -414,9 +365,11 @@ def WageShockIntegrateNP(grad_horizon,sectors,time,skilled_choice,
         return np.log(np.mean(partlike))
 
 
+#===============================================================================
+# Choice likelihood when the wage is missing but the agent chooses a skilled
+# sector have to integrate over unobserved wage shocks (everything)
+#===============================================================================
 
-# choice likelihood when the wage is missing but the agent chooses a sector
-# have to integrate over unobserved wage shocks (everything)
 @jit(nopython=True)
 def WageShockIntegrateNPNoWage(grad_horizon,sectors,time,skilled_choice,
     skilled_shock,Emax_func,sim_wage_shocks,experience,dSTEM,tGPA,
@@ -465,8 +418,10 @@ def WageShockIntegrateNPNoWage(grad_horizon,sectors,time,skilled_choice,
             partlike[sim]=LogitLike(choiceset[sim,:],skilled_choice-1)
         return np.log(np.mean(partlike))
 
+#===============================================================================
+# Calculates choice likelihood for unskilled workers, when wage is observed
+#===============================================================================
 
-# flow_unskilled is penalized
 @jit(nopython=True)
 def ChoiceLikeUnskilled(grad_horizon,sectors,time,dropout_time,
     unskilled_choice,unskilled_exp,hp_exp,unskilled_wage_coeffs,logwage,
@@ -479,11 +434,9 @@ def ChoiceLikeUnskilled(grad_horizon,sectors,time,dropout_time,
     year_four_flow_penalized = year_four_flow - year_four_switching
     if dropout_time == 4:
         unskilled_wage_coeffs_final[0]=year_four_intercept
-
         unskilled_wage_coeffs_final[4] = year_four_exp
         unskilled_wage_coeffs_final[7] = year_four_quadratic
         unskilled_wage_coeffs_final[8] = year_four_year_1
-
         flow_unskilled = year_four_flow_penalized
         unskilled_switch_cost = year_four_switching
 
@@ -544,7 +497,10 @@ def ChoiceLikeUnskilled(grad_horizon,sectors,time,dropout_time,
                 partlike[sim]=LogitLike(np.array([work_flow,hp_flow]),1)
             return np.log(np.mean(partlike))
 
-# flow_unskilled is penalized
+#===============================================================================
+# Calculates choice likelihood for unskilled workers, when wage is unobserved
+#===============================================================================
+
 @jit(nopython=True)
 def ChoiceLikeUnskilledNoWage(grad_horizon,sectors,time,dropout_time,
     unskilled_choice,unskilled_exp,hp_exp,unskilled_wage_coeffs,logwage,
@@ -559,8 +515,6 @@ def ChoiceLikeUnskilledNoWage(grad_horizon,sectors,time,dropout_time,
         unskilled_wage_coeffs_final[0]=year_four_intercept
         flow_unskilled = year_four_flow_penalized
         unskilled_switch_cost = year_four_switching
-
-
         unskilled_wage_coeffs_final[4] = year_four_exp
         unskilled_wage_coeffs_final[7] = year_four_quadratic
         unskilled_wage_coeffs_final[8] = year_four_year_1
@@ -601,20 +555,30 @@ def ChoiceLikeUnskilledNoWage(grad_horizon,sectors,time,dropout_time,
             return np.log(np.mean(partlike))
 
 
+#===============================================================================
+# Education likelihood terms
+#===============================================================================
+
+#===============================================================================
+# Calculates expected grade given exogChars (SAT/HS GPA), academic year, and
+# grade parameters
+#===============================================================================
+
 @jit(nopython=True)
 def Egrade(year,major_params,exogChars):
     year_param=major_params[year+2]
     return (major_params[0]*exogChars[0]+major_params[1]*exogChars[1]+
         major_params[2]*exogChars[2]+year_param)
 
+#===============================================================================
 # Likelihood of grade observation, conditional on unobserved ability type
 # Ability is (STEM, non-STEM)
 # grade_params is a 8x2 vector by major:
 #        [SAT_M, SAT_V, hs_GPA, lambda_1,lambda_2,lambda_3,lambda_4,sigma^2_m]
 #        STEM comes first.
 # exogChars is [SATM,SATV]
+#===============================================================================
 
-# check for STEM or nonSTEM
 @jit(nopython=True)
 def GradeLike(exogChars,time,STEM_choice,grade,grade_params,ability):
     if time==1 or time==2:
@@ -631,7 +595,12 @@ def GradeLike(exogChars,time,STEM_choice,grade,grade_params,ability):
                 ability[1])**2/(2*grade_params[1][var_idx]))
     return loglike
 
-# current_year ranges 1 to 4
+#===============================================================================
+# Generates the distribution of uncertain grades for current_year (1 to 4)
+# These are the grade outcomes agents integrate over when calculating their
+# expected payoff for choosing STEM or non-STEM
+#===============================================================================
+
 @jit(nopython=True)
 def FutureGrade(current_year,currentGPA,dSTEM,exogChars,ability,
     grade_params,grade_quantiles):
@@ -670,14 +639,10 @@ def FutureGrade(current_year,currentGPA,dSTEM,exogChars,ability,
     return nextGrades
 
 
-# check if state==unskilled
-# choice in hp/STEM/nonSTEM = no int
-# iterate over all of the states
-
-# MAPPING: school choice column: 0: STEM, 1: nonSTEM, 2: hp, 3: unskilled
-# STATES: 0: t1STEM, 1: t1nonSTEM, 2: t3STEMReqMet, 3: t3STEMReqNotMet,
-#         4: t3STEM, 5: t3nonSTEM, 6: t1
-
+#===============================================================================
+# mapping functions between a GPA outcome and the particular index of the
+# education ex-ante value function
+#===============================================================================
 
 @jit(nopython=True)
 def gpa_to_index(gpa):
@@ -686,6 +651,13 @@ def gpa_to_index(gpa):
 @jit(nopython=True)
 def tgpa_to_index(gpa):
     return int((gpa-200)/10)
+
+#===============================================================================
+# Calculate choice likelihood for a college student
+# Since education choices are state dependent, there is a different likelihood
+# expression/calculation for each of the 6 possible states, hence the size of
+# this function.
+#===============================================================================
 
 @jit(nopython=True)
 def ChoiceLikeSchool(grad_horizon,school_choice,school_state,cum_GPA,
@@ -1122,11 +1094,18 @@ def ChoiceLikeSchool(grad_horizon,school_choice,school_state,cum_GPA,
             return np.log(LogitLike(np.array([utilityHP,utilitySTEM,
                 utilitynonSTEM,utilityUnskilled]),3))
 
+#===============================================================================
+# Takes in a DataFrame (DFData) of skilled labor market decisions and outputs
+# an 2 x N array of log-likelihoods over wage observations and choices
+# This is a wrapper function that parses all of the parameters and feeds them
+# into calculate_likelihood_skilled()
+#===============================================================================
 
-def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p,beta,
-    ability,flows_penalized,wage_coeffs_full,skilled_wage_covar,unskilled_var,
-    grade_params,normReps,simReps,LaborGradeRange,final_size,
-    switch_costs_skilled,zero_exp_penalty,normReps_later=2,horizon=20,return_array=False):
+def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,
+    gamma_p,beta,ability,flows_penalized,wage_coeffs_full,skilled_wage_covar,
+    unskilled_var,grade_params,normReps,simReps,LaborGradeRange,final_size,
+    switch_costs_skilled,zero_exp_penalty,normReps_later=2,horizon=20,
+    return_array=False):
     """
         Log-likelihood subset for skilled labor observations
         Log-likelihood is approximated for the various integrals 
@@ -1135,12 +1114,15 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
                 PreProcess(DF), and set_index('id')
             SATTuition (list): list of tuples of exogenous endowments and
                 tuitions that affect educational payoff
+            college_values (dict): dictionary of observed major/GPA/qualities
+                in the data, to potentially avoid having to calculate every
+                ex-ante skilled labor function, if not observed in data
             grad_horizon (int): Years of work post-college graduation
             sectors (int): number of skilled sectors
             gamma_p (float): pref. for money
             beta (float): discount factor
             ability ([float]): list of unobserved ability [A_S,A_N]
-            flows ([float]): list of flow utilities (9 terms)
+            flows_penalized ([float]): list of flow utilities (9 terms)
                 flows_penalized+[flow_unskilled_penalized,flowSTEM,flownonSTEM]+
                 time_zero_flows_penalized
             wage_coeffs_full ([[float]]): nested list of log-wage coefficients
@@ -1157,7 +1139,15 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
             LaborGradeRange (np.array): grades to use to discretize graduation
                 outcomes. Segmenting of GPA from 2.0 to 4.0. Education is always
                 assuming 0.1, but I will interpolate payouts over labor mkt
-
+            final_size (int): max size of Emax labor (state space)
+            switch_costs_skilled ([float]): array of skilled switching costs
+            zero_exp_penalty ([float]): additional nonpecuniary penalty for
+                not having prior exp in the sector
+            normReps_later (int): number of normal quantiles to integrate over
+                in 'later' part of ex-ante value function
+            horizon (int): horizon < grad_horizon at which I switch to coarser
+                normReps_later integration over wage shocks
+            return_array (bool): return array or sum everything?
         Returns:
             float: log-likelihood
 
@@ -1176,10 +1166,9 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
     LaborFinal=np.linspace(200,400,21,dtype=np.int64)
 
     wage_coeffs=wage_coeffs_full[:-1]
-    # Generate Emax for entire population
-    # This is just EmaxLink.py
-    # Generate shocks to be used in approximating normal integrals
 
+    # Generate Emax for entire population
+    # Generate shocks to be used in approximating normal integrals
     zscores=scipy.stats.norm.ppf(np.array(range(1,normReps+1))/(normReps+1))
     num_quantiles=20
     norm_quantiles=scipy.stats.norm.ppf(
@@ -1193,8 +1182,6 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
     STEM_payouts_raw=np.zeros(11,dtype=np.float64)
     nonSTEM_payouts_raw=np.zeros(11,dtype=np.float64)
 
-    # HARD CODED (220 refers to total combinations of exp at end)
-
     zscores=scipy.stats.norm.ppf(np.array(range(1,normReps_later+1))/
         (normReps_later+1))
 
@@ -1203,8 +1190,8 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
     lmat=np.linalg.cholesky(skilled_wage_covar)
     wageshocks_later=np.array(np.transpose(np.matmul(lmat,base_draws)))
 
-    skilled_Emax = np.zeros((len(college_values),grad_horizon,final_size,sectors+1),
-        dtype=np.float64)
+    skilled_Emax = np.zeros((len(college_values),grad_horizon,final_size,
+        sectors+1), dtype=np.float64)
     for idx,x in enumerate(college_values):
         quality=x[0]
         dSTEM=x[1]
@@ -1217,22 +1204,6 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
         emax_solve.solveLabor()
         skilled_Emax[idx]=emax_solve.EmaxList
 
-
-    # skilled_Emax=np.zeros((2*11*2,grad_horizon,final_size,sectors+1))
-    # for quality in range(2):
-    #     for idx,grade in enumerate(LaborGradeRange):
-    #         stem=EmaxLaborFunctionsJIT(grad_horizon-1,gamma_p,beta,wage_coeffs,
-    #             1,grade,flows_penalized,wage_shocks,choose,quality,
-    #             time_zero_flows_penalized,switch_costs_skilled)
-    #         stem.solveLabor()
-    #         nonstem=EmaxLaborFunctionsJIT(grad_horizon-1,gamma_p,beta,
-    #             wage_coeffs,0,grade,flows_penalized,wage_shocks,choose,quality,
-    #             time_zero_flows_penalized,switch_costs_skilled)
-    #         nonstem.solveLabor()
-    #         skilled_Emax[idx+11+22*quality]=stem.EmaxList
-    #         skilled_Emax[idx+22*quality]=nonstem.EmaxList
-    #         STEM_payouts_raw[idx]=stem.EmaxList[0,0,0]
-    #         nonSTEM_payouts_raw[idx]=nonstem.EmaxList[0,0,0]
 
     # Fully solve the unskilled labor market, over the 4 dropout times
     dropout_payouts=np.zeros((4,2),dtype=np.float64)
@@ -1255,33 +1226,15 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
     nonSTEM1=np.zeros(len(SATTuition),dtype=np.float64)
 
 
-
-
-    # this part is hard coded for the number of sectors
     skilled_experience=create_skilled_experience(np.array(DFData.skilled1),
         np.array(DFData.skilled2),np.array(DFData.skilled3),
         np.array(DFData.hp))
-
-
 
     wage_shock=calculate_wage_shock_skilled(np.array(DFData.outcome),
         np.array(DFData.col_type),np.array(DFData.numeric_choice),
         np.array(DFData.numeric_state),skilled_wage_coeffs,
         skilled_experience,np.array(DFData.dSTEM),np.array(DFData.tGPA),
         np.array(DFData.quality))
-
-    # Calculates likelihood of labor market decisions
-    # This is the product of the likelihood of each wage offer
-    # and the likelihood of making that choice, integrated over a conditional
-    # wage offer of everything else
-    # Integrating over a multivariate normal is done via simulation at
-    # a number of points, given by cWagePoints
-
-    # returns wage log-likelihood for all of an individual's observations
-    # ignores normalizations like 1/sqrt(2pi)
-
-    # calculates 2 likelihoods and returns a 2xN numpy array
-    
 
 
     # run list of posteriors to integrate wages over
@@ -1290,25 +1243,9 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
     skilled_shocks_list=[x for x in skilled_shocks]
     skilled_wage_shocks=tuple(skilled_shocks_list)
 
-
-
-
-    # Skilled Choice likelihood
-    # For each wage observation, the choice likelihood is a logit
-    # conditional on the distribution of every other wage observation
-    # cases differ for home production (no posterior)
-    # vs non-posterior
-
-
     unskilledWageShocks=(np.transpose(scipy.stats.norm.ppf(
         (np.array(range(simReps))+1)/(simReps+1))*(unskilled_var[0][0])**0.5))
     firstUnskilledDraws=np.exp(unskilled_wage_coeffs[0]+unskilledWageShocks)
-
-    # Unskilled choice likelihood
-    # HP requires integration over unobserved unskilled wage shocks
-    # condition: state=='unskilled' and choice=='unskilled'
-    # dropout_time = 
-
 
 
     # Need to round this to coarseness of the rounding dataset
@@ -1339,22 +1276,20 @@ def LogLikeSkilled(DFData,SATTuition,college_values,grad_horizon,sectors,gamma_p
     if return_array:
         return out
     return np.sum(out)
-    # return [out,wage_shock,skilled_experience,STEM_payouts,nonSTEM_payouts,
-    # unskilled_Emax,ed_Emax, skilled_Emax]
+
+#===============================================================================
+# Calculate skilled likelihood
+#===============================================================================
 
 @jit(nopython=True)
 def calculate_likelihood_skilled(grad_horizon,sectors,time,choice,state,cum_GPA,
-    tdropout,A_N,A_S,SAT_M,SAT_V,hs_GPA,tuition,
-    STEM_payouts, nonSTEM_payouts, grade_quantiles,
-    dropout_payouts, wage_shock,skilled_wage_shocks,hp_wage_shocks,
-    experience,outcome,
-    dSTEM,tGPA,meanterm,skilled_Emax,ed_Emax,
-    ed_emax_mapping, skilled_emax_mapping,
-    flowUnskilled,flowSchool,
-    flows_penalized,skilled_wage_covar,
-    gamma_p,beta,skilled_wage_coeffs,choose,grade_params,STEM1,nonSTEM1,
-    LaborGradeInt,quality,time_zero_flows_penalized,prior_skilled,
-    switch_costs_skilled,zero_exp_penalty):
+    tdropout,A_N,A_S,SAT_M,SAT_V,hs_GPA,tuition,STEM_payouts,nonSTEM_payouts,
+    grade_quantiles,dropout_payouts,wage_shock,skilled_wage_shocks,
+    hp_wage_shocks,experience,outcome,dSTEM,tGPA,meanterm,skilled_Emax,ed_Emax,
+    ed_emax_mapping,skilled_emax_mapping,flowUnskilled,flowSchool,
+    flows_penalized,skilled_wage_covar,gamma_p,beta,skilled_wage_coeffs,choose,
+    grade_params,STEM1,nonSTEM1,LaborGradeInt,quality,time_zero_flows_penalized,
+    prior_skilled,switch_costs_skilled,zero_exp_penalty):
 
     length=time.shape[0]
     # first column is choice likelihood, second is obs likelihood
@@ -1404,6 +1339,9 @@ def calculate_likelihood_skilled(grad_horizon,sectors,time,choice,state,cum_GPA,
 
     return out
 
+#===============================================================================
+# log likelihood wrapper for unskilled labor market observations
+#===============================================================================
 
 def LogLikeUnskilled(DFData,SATTuition,grad_horizon,sectors,gamma_p,beta,
     ability,flows,wage_coeffs_full,skilled_wage_covar,unskilled_var,
@@ -1441,6 +1379,18 @@ def LogLikeUnskilled(DFData,SATTuition,grad_horizon,sectors,gamma_p,beta,
             LaborGradeRange (np.array): grades to use to discretize graduation
                 outcomes. Segmenting of GPA from 2.0 to 4.0. Education is always
                 assuming 0.1, but I will interpolate payouts over labor mkt
+            final_size (int): max size of Emax labor (state space)
+            unskilled_switch_cost ([float]): switching cost into unskilled
+                sector
+            year_four_intercept (float): wage coeff intercept for year 4
+                dropouts
+            year_four_flow (float): flow utility of working in unskilled for
+                year 4 dropouts
+            zero_exp_penalty (float): penalty for working in unskilled w/o prior
+                exp
+            year_four_switching (float): year 4 switching cost
+            return_array (bool): return array or sum it?
+
 
         Returns:
             float: log-likelihood
@@ -1540,19 +1490,6 @@ def LogLikeUnskilled(DFData,SATTuition,grad_horizon,sectors,gamma_p,beta,
         np.array(DFData.quality),np.array(DFData.tdropout),year_four_intercept,
         year_four_exp, year_four_quadratic,year_four_year_1)
 
-    # Calculates likelihood of labor market decisions
-    # This is the product of the likelihood of each wage offer
-    # and the likelihood of making that choice, integrated over a conditional
-    # wage offer of everything else
-    # Integrating over a multivariate normal is done via simulation at
-    # a number of points, given by cWagePoints
-
-    # returns wage log-likelihood for all of an individual's observations
-    # ignores normalizations like 1/sqrt(2pi)
-
-    # calculates 2 likelihoods and returns a 2xN numpy array
-    
-
 
     # run list of posteriors to integrate wages over
     (meanterm,covar,skilled_shocks,hp_wage_shocks)=(
@@ -1560,24 +1497,9 @@ def LogLikeUnskilled(DFData,SATTuition,grad_horizon,sectors,gamma_p,beta,
     skilled_shocks_list=[x for x in skilled_shocks]
     skilled_wage_shocks=tuple(skilled_shocks_list)
 
-
-
-    # Skilled Choice likelihood
-    # For each wage observation, the choice likelihood is a logit
-    # conditional on the distribution of every other wage observation
-    # cases differ for home production (no posterior)
-    # vs non-posterior
-
-
     unskilledWageShocks=(np.transpose(scipy.stats.norm.ppf(
         (np.array(range(simReps))+1)/(simReps+1))*(unskilled_var[0][0])**0.5))
     firstUnskilledDraws=np.exp(unskilled_wage_coeffs[0]+unskilledWageShocks)
-
-    # Unskilled choice likelihood
-    # HP requires integration over unobserved unskilled wage shocks
-    # condition: state=='unskilled' and choice=='unskilled'
-    # dropout_time = 
-
 
     # Need to round this to coarseness of the rounding dataset
     # returns an array of the future grades the individual
@@ -1585,8 +1507,6 @@ def LogLikeUnskilled(DFData,SATTuition,grad_horizon,sectors,gamma_p,beta,
     num_grades=20
     grade_quantiles=scipy.stats.norm.ppf(
         np.array(range(1,num_grades))/num_grades)
-
-
 
     out=calculate_likelihood_unskilled(grad_horizon,sectors,
         np.array(DFData.time),np.array(DFData.numeric_choice),
@@ -1614,7 +1534,9 @@ def LogLikeUnskilled(DFData,SATTuition,grad_horizon,sectors,gamma_p,beta,
         return out
     return np.sum(out)
 
-
+#===============================================================================
+# calculates unskilled likelihood
+#===============================================================================
 
 @jit(nopython=True)
 def calculate_likelihood_unskilled(grad_horizon,sectors,time,choice,state,
@@ -1649,8 +1571,8 @@ def calculate_likelihood_unskilled(grad_horizon,sectors,time,choice,state,
                     unskilled_Emax[unskilled_emax_mapping[x]],gamma_p,beta,
                     flowUnskilled,unskilledWageShocks,choose,
                     unskilled_switch_cost,prior_skilled[x],year_four_intercept,
-                    year_four_flow,zero_exp_penalty,
-                    year_four_exp,year_four_quadratic,year_four_year_1,year_four_switching)
+                    year_four_flow,zero_exp_penalty,year_four_exp,
+                    year_four_quadratic,year_four_year_1year_four_switching)
             else:
                 out[x,1]=(-0.5*np.log(unskilled_var[0][0])-
                     (wage_shock[x])**2/(2*unskilled_var[0][0]))
@@ -1660,8 +1582,8 @@ def calculate_likelihood_unskilled(grad_horizon,sectors,time,choice,state,
                     unskilled_Emax[unskilled_emax_mapping[x]],gamma_p,beta,
                     flowUnskilled,unskilledWageShocks,choose,
                     unskilled_switch_cost,prior_skilled[x],year_four_intercept,
-                    year_four_flow,zero_exp_penalty,
-                    year_four_exp,year_four_quadratic,year_four_year_1,year_four_switching)
+                    year_four_flow,zero_exp_penalty,year_four_exp,
+                    year_four_quadratic,year_four_year_1,year_four_switching)
 
         else:
             out[x,0]=ChoiceLikeUnskilled(grad_horizon,sectors,time[x],
@@ -1670,16 +1592,15 @@ def calculate_likelihood_unskilled(grad_horizon,sectors,time,choice,state,
                 unskilled_Emax[unskilled_emax_mapping[x]],gamma_p,beta,
                 flowUnskilled,unskilledWageShocks,choose,unskilled_switch_cost,
                 prior_skilled[x],year_four_intercept,year_four_flow,
-                zero_exp_penalty,
-                year_four_exp,year_four_quadratic,year_four_year_1,year_four_switching)
-
+                zero_exp_penalty,year_four_exp,year_four_quadratic,
+                year_four_year_1,year_four_switching)
 
     return out
 
+#===============================================================================
+# Wrapper to calculate education choice likelihoods
+#===============================================================================
 
-# conditional on types. Wrapper logic occurs outside, i.e.
-# STEM_payouts and nonSTEM_payouts vary by type
-# MAKE SURE IT DOESN'T CONTAIN ANY NON-EDUCATION DATA (i.e. labor)
 def LogLikeEducation(DFData,SATTuition,grad_horizon,sectors,beta,
     ability,flows_penalized,unskilled_var,grade_params_by_quality,normReps,simReps,
     LaborGradeRange,final_size,dropout_payouts, STEM_payouts_by_quality,
@@ -1720,7 +1641,10 @@ def LogLikeEducation(DFData,SATTuition,grad_horizon,sectors,beta,
             LaborGradeRange (np.array): grades to use to discretize graduation
                 outcomes. Segmenting of GPA from 2.0 to 4.0. Education is always
                 assuming 0.1, but I will interpolate payouts over labor mkt
-            ed_switching_costs: switching costs for STEM and non-STEM
+            ed_switching_costs ([float]): switching costs for STEM and non-STEM
+            univ_type_shifters ([float]): shifters in STEM and non-STEM for
+                private non-religious, private religious, and for-profit
+                universities
         Returns:
             float: log-likelihood
 
@@ -1775,13 +1699,10 @@ def LogLikeEducation(DFData,SATTuition,grad_horizon,sectors,beta,
         nonSTEM1[idx]=Ed.nonSTEM_cond_val_first
         del Ed
 
-
-
     # this part is hard coded for the number of sectors
     skilled_experience=create_skilled_experience(np.array(DFData.skilled1),
         np.array(DFData.skilled2),np.array(DFData.skilled3),
         np.array(DFData.hp))
-
 
 
     wage_shock=calculate_wage_shock(np.array(DFData.outcome),
@@ -1792,50 +1713,17 @@ def LogLikeEducation(DFData,SATTuition,grad_horizon,sectors,beta,
         np.array(DFData.quality),np.array(DFData.tdropout),year_four_intercept,
         year_four_exp,year_four_quadratic,year_four_year_1)
 
-    # Calculates likelihood of labor market decisions
-    # This is the product of the likelihood of each wage offer
-    # and the likelihood of making that choice, integrated over a conditional
-    # wage offer of everything else
-    # Integrating over a multivariate normal is done via simulation at
-    # a number of points, given by cWagePoints
 
-    # returns wage log-likelihood for all of an individual's observations
-    # ignores normalizations like 1/sqrt(2pi)
-
-    # calculates 2 likelihoods and returns a 2xN numpy array
-    
-
-
-    # run list of posteriors to integrate wages over
     (meanterm,covar,skilled_shocks,hp_wage_shocks)=(
         MVNposterior(skilled_wage_covar,4))
     skilled_shocks_list=[x for x in skilled_shocks]
     skilled_wage_shocks=tuple(skilled_shocks_list)
-
-
-
-
-    # Skilled Choice likelihood
-    # For each wage observation, the choice likelihood is a logit
-    # conditional on the distribution of every other wage observation
-    # cases differ for home production (no posterior)
-    # vs non-posterior
-
 
     unskilledWageShocks=(np.transpose(scipy.stats.norm.ppf(
         (np.array(range(simReps))+1)/(simReps+1))*(unskilled_var[0][0])**0.5))
     firstUnskilledDraws=np.exp(unskilled_wage_coeffs[0]+unskilledWageShocks)
 
     year_four_first_draws=np.exp(year_four_intercept+unskilledWageShocks)
-    # Unskilled choice likelihood
-    # HP requires integration over unobserved unskilled wage shocks
-    # condition: state=='unskilled' and choice=='unskilled'
-    # dropout_time = 
-
-
-
-    # Need to round this to coarseness of the rounding dataset
-    # returns an array of the future grades the individual
 
     num_grades=20
     grade_quantiles=scipy.stats.norm.ppf(
@@ -1865,6 +1753,10 @@ def LogLikeEducation(DFData,SATTuition,grad_horizon,sectors,beta,
     if return_array:
         return out
     return np.sum(out)
+
+#===============================================================================
+# calculate likelihood of education observations
+#===============================================================================
 
 @jit(nopython=True)
 def calculate_likelihood_education(grad_horizon,sectors,time,choice,
@@ -1917,5 +1809,9 @@ def calculate_likelihood_education(grad_horizon,sectors,time,choice,
             univ_type_shifters,univ_type_num[x],grad_payoff)
 
     return out
+
+def main():
+    return
+
 if __name__ == '__main__':
     main()
