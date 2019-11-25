@@ -2,23 +2,7 @@ from numba import jit
 import numpy as np
 import scipy.special
 
-
-# note that sectors is number of sectors in data, i.e. does
-# not include HP
-# @jit(nopython=True)
-# def pascal(time,sectors):
-#     out=np.zeros((time+sectors+1,time+sectors+1),dtype=np.int64)
-#     for x in range(1,time+sectors+1):
-#         for y in range(1,x+1):
-#             product=int(1)
-#             for i in range(y+1,x+1):
-#                 product=product*i
-#             for i in range(1,x-y+1):
-#                 product=product/i
-#             out[x,y]=int(product)
-#     out[:,0]=1
-#     return out
-
+# Instead of repeatedly calculating N choose n, save it all to a table
 def pascal(time,sectors):
     out=np.zeros((time+sectors+1,time+sectors+1),dtype=np.int64)
     for x in range(1,time+sectors+1):
